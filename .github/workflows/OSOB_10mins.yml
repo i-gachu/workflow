@@ -1,4 +1,4 @@
-name: None OB and OS only
+name: OSOBtr_10mins
 
 on:
   workflow_dispatch:    # Manual run
