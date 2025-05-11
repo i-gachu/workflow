@@ -1,0 +1,34 @@
+name: None OB and OS only
+
+on:
+  workflow_dispatch:    # Manual run
+  schedule:             # Automatic re-run every 7 hours
+    - cron: "0 */7 * * *"  # At minute 0, every 7th hour
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Unzip pocketoptionapi
+      run: |
+        unzip pocketoptionapi.zip -d ./
+
+
+    - name: Run the bot
+      env:
+        SSID: ${{ secrets.SSID }}
+      run: |
+        python i_gachu_4.2.py
