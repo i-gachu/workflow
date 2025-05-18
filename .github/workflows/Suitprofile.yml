@@ -1,4 +1,4 @@
-name: OSOBtr_10mins
+name: Suitprofile
 
 on:
   workflow_dispatch:    # Manual run
