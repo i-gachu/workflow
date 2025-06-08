@@ -22,8 +22,8 @@ demo = True
 
 # Bot Settings
 min_payout = 80
-period = 600  
-expiration = 600
+period = 300  
+expiration = 300
 INITIAL_AMOUNT = 1
 MARTINGALE_LEVEL = 3
 MIN_ACTIVE_PAIRS = 5
@@ -221,7 +221,7 @@ def wait_for_candle_start():
 
 # ✅ New timeout check function
 def near_github_timeout():
-    return (time.perf_counter() - start_counter) >= (6 * 3600 - 20 * 60)
+    return (time.perf_counter() - start_counter) >= (6 * 3600 - 14 * 60)
 
 # Strategy loop
 def strategie():
@@ -262,10 +262,11 @@ def strategie():
        
         
         if decision:
-            latest_rsi = processed_df.iloc[-1]['RSI']
-            if (decision == "call" and latest_rsi > 70) or (decision == "put" and latest_rsi < 30):
-                global_value.logger(f"Skipping {decision.upper()} due to RSI filter: RSI = {latest_rsi:.2f}", "INFO")
+            latest_k = processed_df.iloc[-1]['k_percent']
+            if (decision == "call" and latest_k > 80) or (decision == "put" and latest_k < 20):
+                global_value.logger(f"Skipping {decision.upper()} due to %K Stochastic filter: %K = {latest_k:.2f}", "INFO")
                 continue
+
 
             if near_github_timeout():
                 global_value.logger("🕒 Near GitHub timeout. Skipping new trade to avoid interruption.", "INFO")
