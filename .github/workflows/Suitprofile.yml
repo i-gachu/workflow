@@ -29,6 +29,7 @@ jobs:
 
     - name: Run the bot
       env:
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         SSID: ${{ secrets.SSID }}
       run: |
         python i_gachu_4.2.py
