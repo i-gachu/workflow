@@ -63,30 +63,51 @@ def wait_for_candle_start(period_seconds=60):
         if now_seconds % period_seconds == 0:
             break
         time.sleep(0.1)
+
+
 def get_payout():
     global instrument, currency_pair
     try:
         d = json.loads(global_value.PayoutData)
-        non_otc_pairs = []
+        filtered_pairs = []
+        
+        # Common index identifiers (including those without numbers)
+        index_identifiers = [
+            'SPX', 'SP', 'NAS', 'NASDAQ', 'DOW', 'NIKKEI', 'FTSE', 'DAX', 
+            'CAC', 'ASX', 'HANG', 'SENG', 'SHANGHAI', 'SENSEX', 'BOVESPA',
+            'IBEX', 'SMI', 'AEX', 'BEL', 'OSLO', 'STOCKHOLM', 'HELSINKI',
+            'US100', 'US30', 'GER30', 'UK100', 'JPN225', 'AUS200',
+            'NASUSD', 'SPXUSD', 'DOWUSD', 'US500', 'TECH100'
+        ]
         
         for pair in d:
             # Check if pair is available for trading (pair[14] is True) and not OTC
             if pair[14] is True and not pair[1].endswith('_otc'):
-                pair_info = {
-                    'name': pair[1],
-                    'payout': pair[5],
-                    'type': pair[3]
-                }
-                non_otc_pairs.append(pair_info)
-                # Store in global_value.pairs for reference
-                global_value.pairs[pair[1]] = {'payout': pair[5], 'type': pair[3]}
+                pair_name = pair[1].upper()
+                
+                # Check if it's an index by looking for index identifiers
+                is_index = any(identifier in pair_name for identifier in index_identifiers)
+                
+                # Also check if it contains numbers (additional safety)
+                contains_numbers = any(char.isdigit() for char in pair_name)
+                
+                # Skip if it's an index or contains numbers
+                if not is_index and not contains_numbers:
+                    pair_info = {
+                        'name': pair[1],
+                        'payout': pair[5],
+                        'type': pair[3]
+                    }
+                    filtered_pairs.append(pair_info)
+                    # Store in global_value.pairs for reference
+                    global_value.pairs[pair[1]] = {'payout': pair[5], 'type': pair[3]}
         
-        if not non_otc_pairs:
-            global_value.logger(f"{datetime.now()} : [ERROR]: No non-OTC pairs available for trading", "ERROR")
+        if not filtered_pairs:
+            global_value.logger(f"{datetime.now()} : [ERROR]: No forex or crypto pairs available for trading (indices excluded)", "ERROR")
             return False
         
         # Find the pair with highest payout
-        best_pair = max(non_otc_pairs, key=lambda x: x['payout'])
+        best_pair = max(filtered_pairs, key=lambda x: x['payout'])
         
         # Update global variables
         currency_pair = best_pair['name']
@@ -96,7 +117,7 @@ def get_payout():
         else:
             instrument = currency_pair.replace('', '_')  # Handle other formats if needed
         
-        global_value.logger(f"{datetime.now()} : [INFO]: Selected pair: {currency_pair} with payout: {best_pair['payout']}%", "INFO")
+        global_value.logger(f"{datetime.now()} : [INFO]: Selected pair: {currency_pair} with payout: {best_pair['payout']}% (indices excluded)", "INFO")
         global_value.logger(f"{datetime.now()} : [INFO]: OANDA instrument: {instrument}", "INFO")
         
         return True
