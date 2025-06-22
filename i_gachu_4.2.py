@@ -20,6 +20,7 @@ ssid = os.getenv("SSID")
 demo = True
 
 # Bot Settings
+min_payout = 10
 period = 60
 expiration = 60
 INITIAL_AMOUNT = 1
@@ -27,8 +28,8 @@ PROB_THRESHOLD = 0.60
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
 # Trading instrument
-instrument = "USD_CAD"  # This will be updated dynamically
-currency_pair = "USDCAD"  # This will be updated dynamically
+instrument = "EUR_USD"
+currency_pair = "EURUSD"
 max_candles = 5000
 
 # OANDA setup
@@ -64,68 +65,17 @@ def wait_for_candle_start(period_seconds=60):
             break
         time.sleep(0.1)
 
-
 def get_payout():
-    global instrument, currency_pair
     try:
         d = json.loads(global_value.PayoutData)
-        filtered_pairs = []
-        
-        # Common index identifiers (including those without numbers)
-        index_identifiers = [
-            'SPX', 'SP', 'NAS', 'NASDAQ', 'DOW', 'NIKKEI', 'FTSE', 'DAX', 
-            'CAC', 'ASX', 'HANG', 'SENG', 'SHANGHAI', 'SENSEX', 'BOVESPA',
-            'IBEX', 'SMI', 'AEX', 'BEL', 'OSLO', 'STOCKHOLM', 'HELSINKI',
-            'US100', 'US30', 'GER30', 'UK100', 'JPN225', 'AUS200',
-            'NASUSD', 'SPXUSD', 'DOWUSD', 'US500', 'TECH100'
-        ]
-        
         for pair in d:
-            # Check if pair is available for trading (pair[14] is True) and not OTC
-            if pair[14] is True and not pair[1].endswith('_otc'):
-                pair_name = pair[1].upper()
-                
-                # Check if it's an index by looking for index identifiers
-                is_index = any(identifier in pair_name for identifier in index_identifiers)
-                
-                # Also check if it contains numbers (additional safety)
-                contains_numbers = any(char.isdigit() for char in pair_name)
-                
-                # Skip if it's an index or contains numbers
-                if not is_index and not contains_numbers:
-                    pair_info = {
-                        'name': pair[1],
-                        'payout': pair[5],
-                        'type': pair[3]
-                    }
-                    filtered_pairs.append(pair_info)
-                    # Store in global_value.pairs for reference
-                    global_value.pairs[pair[1]] = {'payout': pair[5], 'type': pair[3]}
-        
-        if not filtered_pairs:
-            global_value.logger(f"{datetime.now()} : [ERROR]: No forex or crypto pairs available for trading (indices excluded)", "ERROR")
-            return False
-        
-        # Find the pair with highest payout
-        best_pair = max(filtered_pairs, key=lambda x: x['payout'])
-        
-        # Update global variables
-        currency_pair = best_pair['name']
-        # Convert currency pair name to OANDA instrument format (e.g., EURUSD -> EUR_USD)
-        if len(currency_pair) == 6:
-            instrument = f"{currency_pair[:3]}_{currency_pair[3:]}"
-        else:
-            instrument = currency_pair.replace('', '_')  # Handle other formats if needed
-        
-        global_value.logger(f"{datetime.now()} : [INFO]: Selected pair: {currency_pair} with payout: {best_pair['payout']}% (indices excluded)", "INFO")
-        global_value.logger(f"{datetime.now()} : [INFO]: OANDA instrument: {instrument}", "INFO")
-        
+            if pair[1] == currency_pair and pair[14] is True:
+                p = {'payout': pair[5], 'type': pair[3]}
+                global_value.pairs[pair[1]] = p
         return True
-        
     except Exception as e:
         global_value.logger(f"{datetime.now()} : [ERROR]: Payout Error: {str(e)}", "ERROR")
         return False
-
 
 def get_training_data():
     end_time = datetime.now(timezone.utc)
@@ -225,11 +175,13 @@ def predict_next_move(model, df):
     call_conf = proba[1]
     put_conf = proba[0]
     global_value.logger(f"{datetime.now()} : [DEBUG]: Probabilities - CALL: {call_conf:.2f}, PUT: {put_conf:.2f}", "INFO")
-    
-    if call_conf > put_conf:
+    if call_conf > PROB_THRESHOLD:
         return "call"
-    else:
+    elif put_conf > PROB_THRESHOLD:
         return "put"
+    else:
+        global_value.logger(f"{datetime.now()} : [INFO]: ⏭️ Skipping trade due to low confidence ({max(call_conf, put_conf):.2f})", "INFO")
+        return None
 
 def perform_trade(amount, pair, action, expiration):
     result = api.buy(amount=amount, active=pair, action=action, expirations=expiration)
@@ -240,8 +192,6 @@ def perform_trade(amount, pair, action, expiration):
 def prepare():
     try:
         payout_success = get_payout()
-        if payout_success:
-            global_value.logger(f"{datetime.now()} : [INFO]: Trading setup complete for {currency_pair}", "INFO")
         return payout_success
     except Exception as e:
         global_value.logger(f"{datetime.now()} : [ERROR]: Prepare error: {e}", "ERROR")
@@ -257,40 +207,13 @@ def strategie():
         global_value.logger(f"{datetime.now()} : [INFO]: 🧠 Final Decision: {decision.upper()}", "INFO")
         wait_for_candle_start(period_seconds=period)
         perform_trade(INITIAL_AMOUNT, currency_pair, decision, expiration)
-        
-        # After successful trade, check for better opportunities
-        global_value.logger(f"{datetime.now()} : [INFO]: Checking for better trading opportunities", "INFO")
-        current_pair = currency_pair
-        payout_success = get_payout()
-        
-        # If payout fails, log and continue with current pair
-        if not payout_success:
-            global_value.logger(f"{datetime.now()} : [WARNING]: Failed to get payout data, continuing with current pair: {current_pair}", "WARNING")
-        elif currency_pair != current_pair:
-            global_value.logger(f"{datetime.now()} : [INFO]: Switched from {current_pair} to {currency_pair} for better payout", "INFO")
-            df_train = get_training_data()
-            if not df_train.empty:
-                model = train_model(df_train)
-                global_value.logger(f"{datetime.now()} : [INFO]: Model retrained for new pair: {currency_pair}", "INFO")
-        
+        get_payout()
     else:
         global_value.logger(f"{datetime.now()} : [INFO]: No trade executed this cycle", "INFO")
-        # When skipping trade, reselect best pair and retrain model
-        global_value.logger(f"{datetime.now()} : [INFO]: Reselecting best trading pair due to skipped trade", "INFO")
-        
-        current_pair = currency_pair
-        payout_success = get_payout()
-        
-        if not payout_success:
-            global_value.logger(f"{datetime.now()} : [WARNING]: Failed to get payout data, keeping current pair: {current_pair}", "WARNING")
-        elif currency_pair != current_pair:
-            global_value.logger(f"{datetime.now()} : [INFO]: Switched from {current_pair} to {currency_pair} for better opportunity", "INFO")
-            # Collect training data for the new selected pair
-            df_train = get_training_data()
-            if not df_train.empty:
-                model = train_model(df_train)
-                global_value.logger(f"{datetime.now()} : [INFO]: Model retrained for pair: {currency_pair}", "INFO")
-        
+        # Prepare for next cycle: collect and train early
+        df_train = get_training_data()
+        if not df_train.empty:
+            model = train_model(df_train)
         wait_for_candle_start(period_seconds=period)
 
 
@@ -298,24 +221,14 @@ def start():
     while not global_value.websocket_is_connected:
         time.sleep(0.1)
     time.sleep(2)
-    
-    # Keep trying to prepare until successful
-    while True:
-        if prepare():
-            # Initial model training
-            df_train = get_training_data()
-            if not df_train.empty:
-                global model
-                model = train_model(df_train)
-            break
-        else:
-            global_value.logger(f"{datetime.now()} : [INFO]: Retrying in 10 minutes...", "INFO")
-            time.sleep(600)  # Wait 10 minutes (600 seconds)
-    
-    # Main trading loop
-    while True:
-        strategie()
-
+    if prepare():
+        # Initial model training
+        df_train = get_training_data()
+        if not df_train.empty:
+            global model
+            model = train_model(df_train)
+        while True:
+            strategie()
 
 if __name__ == "__main__":
     start()
